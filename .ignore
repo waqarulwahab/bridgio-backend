@@ -1,0 +1,10 @@
+# Dangerous Functions - Do Not Expose Without Review
+
+# --- Poore function dangerous hain - is function ko nahi dekhna ---
+routes/system.py        → api_run_cmd       (line 9-11)   - poora function nahi dekhna
+routes/system.py        → api_del           (line 26-29)  - poora function nahi dekhna
+
+# --- Sirf ek line dangerous hai - ye line nahi dekhni ---
+routes/system.py        → api_kill          line 23
+routes/websockets.py    → ws_rc_device      line 70
+routes/utils.py         → _make_token       line 59

@@ -1,0 +1,45 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+
+      - name: Sync files to server
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            --exclude='.git' \
+            --exclude='data/' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='*.db' \
+            --exclude='releases/' \
+            ./ root@${{ secrets.SSH_HOST }}:/home/PROJECTS/OWN/bridgio/backend/
+
+      - name: Rebuild & restart Docker
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SSH_HOST }} "
+            cd /home/PROJECTS/OWN/bridgio/backend &&
+            docker compose build &&
+            docker compose up -d --remove-orphans &&
+            docker image prune -f
+          "
+
+      - name: Health check
+        run: |
+          sleep 5
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SSH_HOST }} \
+            "docker compose -f /home/PROJECTS/OWN/bridgio/backend/docker-compose.yml ps"

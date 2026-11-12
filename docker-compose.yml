@@ -1,0 +1,28 @@
+services:
+  bridgio-backend:
+    build: .
+    container_name: bridgio-backend
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PCSYNC_USER=${PCSYNC_USER:-samar}
+      - PCSYNC_PASS=${PCSYNC_PASS:-pcsync2024}
+      - PCSYNC_SECRET=${PCSYNC_SECRET:-device_secret_key}
+      - DB_PATH=/app/data/bridgio.db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bridgio.rule=Host(`${DOMAIN:-backend.bridgio.waqarulwahab.me}`)"
+      - "traefik.http.routers.bridgio.entrypoints=websecure"
+      - "traefik.http.routers.bridgio.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.bridgio.loadbalancer.server.port=8000"
+      - "traefik.http.routers.bridgio-ws.rule=Host(`${DOMAIN:-backend.bridgio.waqarulwahab.me}`) && PathPrefix(`/ws`)"
+      - "traefik.http.routers.bridgio-ws.entrypoints=websecure"
+      - "traefik.http.routers.bridgio-ws.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.bridgio-ws.service=bridgio"
+    networks:
+      - n8n_default
+
+networks:
+  n8n_default:
+    external: true

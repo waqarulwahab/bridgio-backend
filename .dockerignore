@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+*.pyo
+.env
+.env.*
+data/
+bridgio.db
+*.db
+releases/
+.git
