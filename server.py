@@ -16,7 +16,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
 
 from routes.utils import _load_state, _fetch_rc_exe, _auth
-from routes import devices, files, system, downloads, websockets, dashboard, rc_dashboard
+from routes import devices, files, system, downloads, websockets, dashboard, rc_dashboard, build
 from routes.db import db_path
 
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +35,7 @@ app.include_router(downloads.router)
 app.include_router(websockets.router)
 app.include_router(dashboard.router)
 app.include_router(rc_dashboard.router)
+app.include_router(build.router)
 
 
 @app.get("/api/backup")

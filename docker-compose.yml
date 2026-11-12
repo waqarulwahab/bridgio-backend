@@ -10,6 +10,7 @@ services:
       - PCSYNC_PASS=${PCSYNC_PASS:-pcsync2024}
       - PCSYNC_SECRET=${PCSYNC_SECRET:-device_secret_key}
       - DB_PATH=/app/data/bridgio.db
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.bridgio.rule=Host(`${DOMAIN:-backend.bridgio.waqarulwahab.me}`)"
