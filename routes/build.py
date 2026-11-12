@@ -1,12 +1,13 @@
 import asyncio
-import base64
-import json
 import io
-import urllib.request
+import json
+import os
 import urllib.error
+import urllib.request
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from .state import GITHUB_TOKEN
 from .utils import _auth
@@ -15,6 +16,11 @@ router = APIRouter()
 
 REPO = "waqarulwahab/bridgio-agent"
 API = "https://api.github.com"
+
+# Temp storage for pending PDFs (uuid -> filepath)
+_pending_pdfs: dict[str, str] = {}
+
+DATA_DIR = os.environ.get("DB_PATH", "").replace("bridgio.db", "") or "/app/data"
 
 
 def _gh(method: str, path: str, body=None):
@@ -45,35 +51,27 @@ async def trigger_build(t: str = Query(...), pdf: UploadFile = File(...)):
     pdf_bytes = await pdf.read()
     if not pdf_bytes:
         raise HTTPException(400, "Empty PDF file")
-    pdf_b64 = base64.b64encode(pdf_bytes).decode()
 
-    # Get existing file SHA if any (needed for update)
-    sha = None
-    try:
-        existing = _gh("GET", f"/repos/{REPO}/contents/decoy/decoy.pdf")
-        sha = existing.get("sha")
-    except HTTPException as e:
-        if e.status_code != 404:
-            raise
-
-    # Commit PDF to repo
-    commit_body: dict = {
-        "message": "chore: update decoy PDF via dashboard",
-        "content": pdf_b64,
-        "branch": "main",
-    }
-    if sha:
-        commit_body["sha"] = sha
-    _gh("PUT", f"/repos/{REPO}/contents/decoy/decoy.pdf", commit_body)
+    # Save PDF temporarily — no commit to repo
+    pdf_id = str(uuid.uuid4())
+    pdf_path = os.path.join(DATA_DIR, f"decoy_{pdf_id}.pdf")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(pdf_path, "wb") as f:
+        f.write(pdf_bytes)
+    _pending_pdfs[pdf_id] = pdf_path
 
     # Note current run count before triggering
     before = _gh("GET", f"/repos/{REPO}/actions/workflows/build.yml/runs?per_page=1")
     before_count = before.get("total_count", 0)
 
-    # Trigger workflow_dispatch
+    # Build the backend PDF URL for the runner to download
+    backend_url = os.environ.get("BACKEND_PUBLIC_URL", "https://backend.bridgio.waqarulwahab.me")
+    pdf_url = f"{backend_url}/api/build/pdf/{pdf_id}"
+
+    # Trigger workflow_dispatch with pdf_url input
     _gh("POST", f"/repos/{REPO}/actions/workflows/build.yml/dispatches", {
         "ref": "main",
-        "inputs": {"trigger": "dashboard"},
+        "inputs": {"pdf_url": pdf_url},
     })
 
     # Poll up to 20s for new run to appear
@@ -88,6 +86,26 @@ async def trigger_build(t: str = Query(...), pdf: UploadFile = File(...)):
                 break
 
     return {"run_id": run_id, "repo": REPO}
+
+
+@router.get("/api/build/pdf/{pdf_id}")
+async def serve_pdf(pdf_id: str):
+    # UUID is the secret — no token auth needed here
+    # Sanitize to avoid path traversal
+    if not all(c in "0123456789abcdef-" for c in pdf_id):
+        raise HTTPException(400, "Invalid id")
+    path = _pending_pdfs.get(pdf_id)
+    if not path or not os.path.exists(path):
+        raise HTTPException(404, "PDF not found or already used")
+    with open(path, "rb") as f:
+        data = f.read()
+    # Clean up after serving
+    try:
+        os.remove(path)
+        _pending_pdfs.pop(pdf_id, None)
+    except Exception:
+        pass
+    return Response(content=data, media_type="application/pdf")
 
 
 @router.get("/api/build/status")
@@ -121,7 +139,6 @@ async def build_download(run_id: int, t: str = Query(...)):
     req.add_header("Authorization", f"token {GITHUB_TOKEN}")
     req.add_header("Accept", "application/vnd.github+json")
 
-    # urllib follows redirects by default
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read()
 
