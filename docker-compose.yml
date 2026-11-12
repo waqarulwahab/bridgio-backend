@@ -11,6 +11,7 @@ services:
       - PCSYNC_SECRET=${PCSYNC_SECRET:-device_secret_key}
       - DB_PATH=/app/data/bridgio.db
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-https://backend.bridgio.waqarulwahab.me}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.bridgio.rule=Host(`${DOMAIN:-backend.bridgio.waqarulwahab.me}`)"
