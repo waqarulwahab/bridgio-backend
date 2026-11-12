@@ -29,6 +29,11 @@ jobs:
             --exclude='releases/' \
             ./ root@${{ secrets.SSH_HOST }}:/home/PROJECTS/OWN/bridgio/backend/
 
+      - name: Write .env on server
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SSH_HOST }} \
+            "echo 'GITHUB_TOKEN=${{ secrets.GH_PAT }}' > /home/PROJECTS/OWN/bridgio/backend/.env"
+
       - name: Rebuild & restart Docker
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SSH_HOST }} "
