@@ -23,6 +23,7 @@ def _h(s: str) -> str:
 
 def _load_state():
     _db.init_db()
+    _db.init_builds_table()
     known_devices.update(_db.load_devices())
     known_rc_devices.update(_db.load_rc_devices())
     logger.info("loaded %d devices, %d rc_devices from SQLite", len(known_devices), len(known_rc_devices))

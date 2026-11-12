@@ -109,5 +109,46 @@ def delete_device_db(did: str):
         c.commit()
 
 
+def init_builds_table():
+    with _conn() as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS builds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER,
+                title TEXT NOT NULL DEFAULT 'BridgioAgent',
+                status TEXT NOT NULL DEFAULT 'building',
+                conclusion TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        c.commit()
+
+
+def save_build(run_id, title: str) -> int:
+    from datetime import datetime
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO builds (run_id, title, status, created_at) VALUES (?, ?, 'building', ?)",
+            (run_id, title, datetime.utcnow().isoformat()),
+        )
+        c.commit()
+        return c.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def update_build_status(run_id: int, status: str, conclusion: str = None):
+    with _conn() as c:
+        c.execute(
+            "UPDATE builds SET status=?, conclusion=? WHERE run_id=?",
+            (status, conclusion, run_id),
+        )
+        c.commit()
+
+
+def list_builds() -> list:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM builds ORDER BY created_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
 def db_path() -> str:
     return _DB_PATH

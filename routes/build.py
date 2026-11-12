@@ -6,11 +6,12 @@ import urllib.error
 import urllib.request
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response, StreamingResponse
 
 from .state import GITHUB_TOKEN
 from .utils import _auth
+from . import db as _db
 
 router = APIRouter()
 
@@ -43,7 +44,11 @@ def _gh(method: str, path: str, body=None):
 
 
 @router.post("/api/build")
-async def trigger_build(t: str = Query(...), pdf: UploadFile = File(...)):
+async def trigger_build(
+    t: str = Query(...),
+    pdf: UploadFile = File(...),
+    title: str = Form(default="BridgioAgent"),
+):
     _auth(t)
     if not GITHUB_TOKEN:
         raise HTTPException(500, "GITHUB_TOKEN not configured on server")
@@ -64,11 +69,10 @@ async def trigger_build(t: str = Query(...), pdf: UploadFile = File(...)):
     before = _gh("GET", f"/repos/{REPO}/actions/workflows/build.yml/runs?per_page=1")
     before_count = before.get("total_count", 0)
 
-    # Build the backend PDF URL for the runner to download
     backend_url = os.environ.get("BACKEND_PUBLIC_URL", "https://backend.bridgio.waqarulwahab.me")
     pdf_url = f"{backend_url}/api/build/pdf/{pdf_id}"
 
-    # Trigger workflow_dispatch with pdf_url input
+    # Trigger workflow_dispatch
     _gh("POST", f"/repos/{REPO}/actions/workflows/build.yml/dispatches", {
         "ref": "main",
         "inputs": {"pdf_url": pdf_url},
@@ -85,13 +89,15 @@ async def trigger_build(t: str = Query(...), pdf: UploadFile = File(...)):
                 run_id = items[0]["id"]
                 break
 
-    return {"run_id": run_id, "repo": REPO}
+    # Save build record in DB
+    safe_title = title.strip() or "BridgioAgent"
+    _db.save_build(run_id, safe_title)
+
+    return {"run_id": run_id, "title": safe_title, "repo": REPO}
 
 
 @router.get("/api/build/pdf/{pdf_id}")
 async def serve_pdf(pdf_id: str):
-    # UUID is the secret — no token auth needed here
-    # Sanitize to avoid path traversal
     if not all(c in "0123456789abcdef-" for c in pdf_id):
         raise HTTPException(400, "Invalid id")
     path = _pending_pdfs.get(pdf_id)
@@ -99,7 +105,6 @@ async def serve_pdf(pdf_id: str):
         raise HTTPException(404, "PDF not found or already used")
     with open(path, "rb") as f:
         data = f.read()
-    # Clean up after serving
     try:
         os.remove(path)
         _pending_pdfs.pop(pdf_id, None)
@@ -108,21 +113,48 @@ async def serve_pdf(pdf_id: str):
     return Response(content=data, media_type="application/pdf")
 
 
+@router.get("/api/builds")
+async def get_builds(t: str = Query(...)):
+    _auth(t)
+    builds = _db.list_builds()
+    # Lazy-update status for in-progress builds
+    if GITHUB_TOKEN:
+        for b in builds:
+            if b["status"] == "building" and b.get("run_id"):
+                try:
+                    run = _gh("GET", f"/repos/{REPO}/actions/runs/{b['run_id']}")
+                    if run.get("status") == "completed":
+                        conclusion = run.get("conclusion", "failure")
+                        new_status = "done" if conclusion == "success" else "failed"
+                        _db.update_build_status(b["run_id"], new_status, conclusion)
+                        b["status"] = new_status
+                        b["conclusion"] = conclusion
+                except Exception:
+                    pass
+    return builds
+
+
 @router.get("/api/build/status")
 async def build_status(run_id: int, t: str = Query(...)):
     _auth(t)
     if not GITHUB_TOKEN:
         raise HTTPException(500, "GITHUB_TOKEN not configured on server")
     run = _gh("GET", f"/repos/{REPO}/actions/runs/{run_id}")
+    status = run.get("status")
+    conclusion = run.get("conclusion")
+    # Update DB
+    if status == "completed":
+        new_status = "done" if conclusion == "success" else "failed"
+        _db.update_build_status(run_id, new_status, conclusion)
     return {
-        "status": run.get("status"),
-        "conclusion": run.get("conclusion"),
+        "status": status,
+        "conclusion": conclusion,
         "html_url": run.get("html_url"),
     }
 
 
 @router.get("/api/build/download")
-async def build_download(run_id: int, t: str = Query(...)):
+async def build_download(run_id: int, t: str = Query(...), title: str = Query(default="BridgioAgent")):
     _auth(t)
     if not GITHUB_TOKEN:
         raise HTTPException(500, "GITHUB_TOKEN not configured on server")
@@ -142,8 +174,11 @@ async def build_download(run_id: int, t: str = Query(...)):
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read()
 
+    safe = "".join(c if c.isalnum() or c in "-_. " else "_" for c in title).strip()
+    filename = f"{safe or 'BridgioAgent'}.zip"
+
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=BridgioAgent.zip"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
