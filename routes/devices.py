@@ -64,6 +64,22 @@ async def debug():
     return {"devices": list(devices.keys()), "secret_ok": SECRET == "device_secret_key"}
 
 
+@router.post("/api/rename-rc-device")
+async def rename_rc_device(request: Request, t: str = Query(...)):
+    _auth(t)
+    body = await request.json()
+    did = body.get("device_id")
+    new_name = (body.get("name") or "").strip()
+    if not did or not new_name:
+        raise HTTPException(400, "device_id and name required")
+    if did not in known_rc_devices:
+        raise HTTPException(404, "Device not found")
+    known_rc_devices[did]["custom_name"] = new_name
+    from .utils import _save_rc_state
+    _save_rc_state()
+    return {"ok": True}
+
+
 @router.get("/api/rc-devices")
 async def api_rc_devices(t: str = Query(...)):
     _auth(t)
