@@ -31,8 +31,14 @@ jobs:
 
       - name: Write .env on server
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SSH_HOST }} \
-            "echo 'GITHUB_TOKEN=${{ secrets.GH_PAT }}' > /home/PROJECTS/OWN/bridgio/backend/.env"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@${{ secrets.SSH_HOST }} "
+            printf 'GITHUB_TOKEN=%s\nPCSYNC_USER=%s\nPCSYNC_PASS=%s\nPCSYNC_SECRET=%s\n' \
+              '${{ secrets.GH_PAT }}' \
+              '${{ secrets.PCSYNC_USER }}' \
+              '${{ secrets.PCSYNC_PASS }}' \
+              '${{ secrets.PCSYNC_SECRET }}' \
+              > /home/PROJECTS/OWN/bridgio/backend/.env
+          "
 
       - name: Rebuild & restart Docker
         run: |
