@@ -167,11 +167,26 @@ async def build_download(run_id: int, t: str = Query(...), title: str = Query(de
     artifact_id = items[0]["id"]
     url = f"{API}/repos/{REPO}/actions/artifacts/{artifact_id}/zip"
 
-    req = urllib.request.Request(url)
-    req.add_header("Authorization", f"token {GITHUB_TOKEN}")
-    req.add_header("Accept", "application/vnd.github+json")
+    # Step 1: get the pre-signed redirect URL (GitHub returns 302 → S3)
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
 
-    with urllib.request.urlopen(req, timeout=120) as r:
+    opener = urllib.request.build_opener(_NoRedirect)
+    req1 = urllib.request.Request(url, method="GET")
+    req1.add_header("Authorization", f"token {GITHUB_TOKEN}")
+    req1.add_header("Accept", "application/vnd.github+json")
+    try:
+        with opener.open(req1, timeout=30) as r1:
+            download_url = r1.geturl()
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308):
+            download_url = e.headers.get("Location")
+        else:
+            raise HTTPException(e.code, f"GitHub API error: {e.read().decode()}")
+
+    # Step 2: download from the pre-signed URL without auth header
+    with urllib.request.urlopen(download_url, timeout=120) as r:
         data = r.read()
 
     safe = "".join(c if c.isalnum() or c in "-_. " else "_" for c in title).strip()
